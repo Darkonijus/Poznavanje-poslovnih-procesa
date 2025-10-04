@@ -1,6 +1,6 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
-        <ProjectGuid>{430C3735-4B1F-4ADB-8F50-202BF5BE16CB}</ProjectGuid>
+        <ProjectGuid>{3A024058-DDAA-4052-943B-7A8F78B894EB}</ProjectGuid>
         <MainSource>MyCinema.dpr</MainSource>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Debug</Config>

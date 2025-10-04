@@ -1,4 +1,3 @@
-// Overlap-fixed uMain.pas (replace your existing one with this)
 unit uMain;
 
 interface
@@ -66,16 +65,20 @@ type
     btnCancelRes: TButton;
     btnBackToMyRes: TButton;
 
+    UpdatingPayment: Boolean;
+
     procedure BuildUI;
     procedure GoToTab(ATab: TTabSheet);
     procedure OnlyOneChecked(Sender: TObject);
     procedure OnlyOnePaymentChecked(Sender: TObject);
-    procedure LoadRandomTakenSeats;
+    procedure LoadTakenSeatsFromReservations;
     procedure SeatClick(Sender: TObject);
     procedure RefreshSeatSelectionLabel;
     procedure RebuildReservationsList;
     function  CalcPrice(const AType, ATime: string): Integer;
     procedure SaveCurrentAsReservation;
+    function  IsSameShow(const R: TReservation): Boolean;
+    function  IsSeatAlreadyReserved(Row, Col: Integer; Exclude: TReservation): Boolean;
 
     procedure OnLogin(Sender: TObject);
     procedure OnWatchMovie(Sender: TObject);
@@ -111,7 +114,7 @@ end;
 
 procedure TFormMain.BuildUI;
 var
-  I, J: Integer;
+  RowIdx, ColIdx: Integer;
   sp: TPanel;
 begin
   Page := TPageControl.Create(Self);
@@ -127,6 +130,7 @@ begin
   TabMyRes := TTabSheet.Create(Page); TabMyRes.PageControl := Page; TabMyRes.Caption := 'Moje Rezervacije';
   TabResDetail := TTabSheet.Create(Page); TabResDetail.PageControl := Page; TabResDetail.Caption := 'Detalj';
 
+  // LOGIN
   with TLabel.Create(TabLogin) do begin Parent := TabLogin; Caption := 'Пријава (username: admin, password: 1234)'; Left := 20; Top := 20; Font.Style := [fsBold]; end;
   with TLabel.Create(TabLogin) do begin Parent := TabLogin; Caption := 'Корисничко име:'; Left := 20; Top := 60; end;
   edtUser := TEdit.Create(TabLogin); edtUser.Parent := TabLogin; edtUser.Left := 160; edtUser.Top := 56; edtUser.Width := 200;
@@ -135,15 +139,18 @@ begin
   btnLogin := TButton.Create(TabLogin); btnLogin.Parent := TabLogin; btnLogin.Caption := 'Улогуј се'; btnLogin.Left := 160; btnLogin.Top := 140; btnLogin.OnClick := OnLogin;
   lblLoginMsg := TLabel.Create(TabLogin); lblLoginMsg.Parent := TabLogin; lblLoginMsg.Left := 160; lblLoginMsg.Top := 180; lblLoginMsg.Font.Color := clRed;
 
+  // HOME
   with TLabel.Create(TabHome) do begin Parent := TabHome; Caption := 'Добродошли!'; Left := 20; Top := 20; Font.Size := 12; Font.Style := [fsBold]; end;
   btnWatch := TButton.Create(TabHome); btnWatch.Parent := TabHome; btnWatch.Caption := 'Gledaj film'; btnWatch.Left := 20; btnWatch.Top := 70; btnWatch.Width := 200; btnWatch.OnClick := OnWatchMovie;
   btnMyReservations := TButton.Create(TabHome); btnMyReservations.Parent := TabHome; btnMyReservations.Caption := 'Moje rezervacije'; btnMyReservations.Left := 20; btnMyReservations.Top := 110; btnMyReservations.Width := 200; btnMyReservations.OnClick := OnGoMyReservations;
 
+  // MOVIE
   lblMovie := TLabel.Create(TabMovie); lblMovie.Parent := TabMovie; lblMovie.Left := 20; lblMovie.Top := 20; lblMovie.Caption := 'Изаберите филм:'; lblMovie.Font.Style := [fsBold];
   btnMovie1 := TButton.Create(TabMovie); btnMovie1.Parent := TabMovie; btnMovie1.Caption := 'Film A'; btnMovie1.Left := 20; btnMovie1.Top := 60; btnMovie1.Width := 200; btnMovie1.OnClick := OnMoviePick;
   btnMovie2 := TButton.Create(TabMovie); btnMovie2.Parent := TabMovie; btnMovie2.Caption := 'Film B'; btnMovie2.Left := 240; btnMovie2.Top := 60; btnMovie2.Width := 200; btnMovie2.OnClick := OnMoviePick;
   btnToOptionsFromMovie := TButton.Create(TabMovie); btnToOptionsFromMovie.Parent := TabMovie; btnToOptionsFromMovie.Caption := 'Dalje'; btnToOptionsFromMovie.Left := 20; btnToOptionsFromMovie.Top := 110; btnToOptionsFromMovie.Enabled := False; btnToOptionsFromMovie.OnClick := OnToSeats;
 
+  // OPTIONS
   grpCity := TGroupBox.Create(TabOptions); grpCity.Parent := TabOptions; grpCity.Caption := 'Град'; grpCity.Left := 20; grpCity.Top := 20; grpCity.Width := 200; grpCity.Height := 90;
   cbKrag := TCheckBox.Create(grpCity); cbKrag.Parent := grpCity; cbKrag.Caption := 'Kragujevac'; cbKrag.Left := 10; cbKrag.Top := 20; cbKrag.OnClick := OnlyOneChecked;
   cbBgd  := TCheckBox.Create(grpCity); cbBgd.Parent := grpCity;  cbBgd.Caption := 'Beograd';    cbBgd.Left := 10; cbBgd.Top := 45; cbBgd.OnClick := OnlyOneChecked;
@@ -162,20 +169,22 @@ begin
 
   btnToSeats := TButton.Create(TabOptions); btnToSeats.Parent := TabOptions; btnToSeats.Caption := 'Na sedišta'; btnToSeats.Left := 20; btnToSeats.Top := 130; btnToSeats.OnClick := OnToSeats;
 
+  // SEATS
   pnlSeats := TPanel.Create(TabSeats); pnlSeats.Parent := TabSeats; pnlSeats.Left := 20; pnlSeats.Top := 20; pnlSeats.Width := 8*44; pnlSeats.Height := 8*44; pnlSeats.BevelOuter := bvNone;
-  for I := 0 to 7 do
-    for J := 0 to 7 do begin
+  for RowIdx := 0 to 7 do
+    for ColIdx := 0 to 7 do begin
       sp := TPanel.Create(pnlSeats);
       sp.Parent := pnlSeats;
-      sp.Tag := I*100 + J;
-      sp.Left := J*44; sp.Top := I*44; sp.Width := 40; sp.Height := 40;
+      sp.Tag := RowIdx*100 + ColIdx;
+      sp.Left := ColIdx*44; sp.Top := RowIdx*44; sp.Width := 40; sp.Height := 40;
       sp.Caption := ''; sp.BevelOuter := bvLowered; sp.ParentBackground := False;
       sp.OnClick := SeatClick;
-      SeatPanels[I,J] := sp;
+      SeatPanels[RowIdx,ColIdx] := sp;
     end;
   lblSeatInfo := TLabel.Create(TabSeats); lblSeatInfo.Parent := TabSeats; lblSeatInfo.Left := 20; lblSeatInfo.Top := pnlSeats.Top + pnlSeats.Height + 10; lblSeatInfo.Caption := 'Изаберите слободно седиште.';
   btnReserve := TButton.Create(TabSeats); btnReserve.Parent := TabSeats; btnReserve.Left := 20; btnReserve.Top := lblSeatInfo.Top + 30; btnReserve.Width := 120; btnReserve.Caption := 'Rezerviši'; btnReserve.Enabled := False; btnReserve.OnClick := OnReserveSeat;
 
+  // CHECKOUT
   lblSummary := TLabel.Create(TabCheckout); lblSummary.Parent := TabCheckout;
   lblSummary.Left := 20; lblSummary.Top := 20; lblSummary.AutoSize := True; lblSummary.WordWrap := True; lblSummary.Width := 520; lblSummary.Caption := '';
 
@@ -186,10 +195,12 @@ begin
 
   btnContinue := TButton.Create(TabCheckout); btnContinue.Parent := TabCheckout; btnContinue.Caption := 'Nastavi'; btnContinue.Left := 20; btnContinue.Top := 190; btnContinue.OnClick := OnContinue;
 
+  // MY RESERVATIONS
   lstReservations := TListBox.Create(TabMyRes); lstReservations.Parent := TabMyRes; lstReservations.Left := 20; lstReservations.Top := 20; lstReservations.Width := 500; lstReservations.Height := 350;
   btnOpenReservation := TButton.Create(TabMyRes); btnOpenReservation.Parent := TabMyRes; btnOpenReservation.Left := 20; btnOpenReservation.Top := 380; btnOpenReservation.Caption := 'Отвори'; btnOpenReservation.OnClick := OnOpenReservation;
   btnBackHomeFromMyRes := TButton.Create(TabMyRes); btnBackHomeFromMyRes.Parent := TabMyRes; btnBackHomeFromMyRes.Left := 110; btnBackHomeFromMyRes.Top := 380; btnBackHomeFromMyRes.Caption := 'Назад'; btnBackHomeFromMyRes.OnClick := OnGoMyReservations;
 
+  // RESERVATION DETAIL
   lblResDetail := TLabel.Create(TabResDetail); lblResDetail.Parent := TabResDetail; lblResDetail.Left := 20; lblResDetail.Top := 20; lblResDetail.AutoSize := True; lblResDetail.WordWrap := True; lblResDetail.Width := 600; lblResDetail.Caption := '';
   btnChangeSeat := TButton.Create(TabResDetail); btnChangeSeat.Parent := TabResDetail; btnChangeSeat.Left := 20; btnChangeSeat.Top := 80; btnChangeSeat.Caption := 'Промени седиште'; btnChangeSeat.OnClick := OnChangeSeat;
   btnCancelRes := TButton.Create(TabResDetail); btnCancelRes.Parent := TabResDetail; btnCancelRes.Left := 160; btnCancelRes.Top := 80; btnCancelRes.Caption := 'Откажи'; btnCancelRes.OnClick := OnCancelRes;
@@ -203,47 +214,94 @@ end;
 
 procedure TFormMain.OnlyOneChecked(Sender: TObject);
 var
-  c: TCheckBox;
-  parentBox: TWinControl;
-  i: Integer;
+  Cb: TCheckBox;
+  ParentBox: TWinControl;
+  I: Integer;
 begin
-  c := Sender as TCheckBox;
-  if not c.Checked then Exit;
+  Cb := Sender as TCheckBox;
+  if not Cb.Checked then Exit;
 
-  parentBox := c.Parent;
-  for i := 0 to parentBox.ControlCount - 1 do
-    if (parentBox.Controls[i] is TCheckBox) and (parentBox.Controls[i] <> c) then
-      TCheckBox(parentBox.Controls[i]).Checked := False;
+  ParentBox := Cb.Parent;
+  for I := 0 to ParentBox.ControlCount - 1 do
+    if (ParentBox.Controls[I] is TCheckBox) and (ParentBox.Controls[I] <> Cb) then
+      TCheckBox(ParentBox.Controls[I]).Checked := False;
 end;
 
 procedure TFormMain.OnlyOnePaymentChecked(Sender: TObject);
 begin
-  cbGPay.Checked := Sender = cbGPay;
-  cbAPay.Checked := Sender = cbAPay;
-  cbCard.Checked := Sender = cbCard;
+  if UpdatingPayment then Exit;   // anti-recursion guard
+  UpdatingPayment := True;
+  try
+    cbGPay.OnClick := nil; cbAPay.OnClick := nil; cbCard.OnClick := nil;
+    cbGPay.Checked := (Sender = cbGPay);
+    cbAPay.Checked := (Sender = cbAPay);
+    cbCard.Checked := (Sender = cbCard);
+  finally
+    cbGPay.OnClick := OnlyOnePaymentChecked;
+    cbAPay.OnClick := OnlyOnePaymentChecked;
+    cbCard.OnClick := OnlyOnePaymentChecked;
+    UpdatingPayment := False;
+  end;
 end;
 
-procedure TFormMain.LoadRandomTakenSeats;
-var
-  i, r, c: Integer;
+// Da li je rezervacija za isti termin/film/grad/tip kao trenutno izabrano
+function TFormMain.IsSameShow(const R: TReservation): Boolean;
 begin
-  Randomize;
-  for r := 0 to 7 do
-    for c := 0 to 7 do
+  Result := (R.MovieTitle = CurrentMovie) and
+            (R.City = CurrentCity) and
+            (R.ShowDate = CurrentDate) and
+            (R.ShowTime = CurrentTime) and
+            (R.ProjectionType = CurrentType);
+end;
+
+// Provera duplog sedišta (uz opciono izuzimanje jedne rezervacije kada uređujemo)
+function TFormMain.IsSeatAlreadyReserved(Row, Col: Integer; Exclude: TReservation): Boolean;
+var
+  I: Integer;
+  Res: TReservation;
+begin
+  Result := False;
+  for I := 0 to Reservations.Count-1 do
+  begin
+    Res := Reservations[I];
+    if (Res <> Exclude) and IsSameShow(Res) and (Res.SeatRow = Row) and (Res.SeatCol = Col) then
+      Exit(True);
+  end;
+end;
+
+// Popuni mrežu zauzetim mestima na osnovu postojećih rezervacija
+procedure TFormMain.LoadTakenSeatsFromReservations;
+var
+  RowIdx, ColIdx, I: Integer;
+  Res: TReservation;
+begin
+  // reset mreže sedišta
+  for RowIdx := 0 to 7 do
+    for ColIdx := 0 to 7 do
     begin
-      SeatPanels[r,c].Enabled := True;
-      SeatPanels[r,c].Caption := '';
-      SeatPanels[r,c].Color := clBtnFace;
-      SeatPanels[r,c].Tag := r*100 + c;
+      SeatPanels[RowIdx, ColIdx].Enabled := True;
+      SeatPanels[RowIdx, ColIdx].Caption := '';
+      SeatPanels[RowIdx, ColIdx].Color := clBtnFace;
+      SeatPanels[RowIdx, ColIdx].Tag := RowIdx*100 + ColIdx;
     end;
 
-  for i := 1 to 15 do
+  // označi zauzeta prema postojećim rezervacijama za ISTI film/termin
+  for I := 0 to Reservations.Count-1 do
   begin
-    r := Random(8);
-    c := Random(8);
-    SeatPanels[r,c].Enabled := False;
-    SeatPanels[r,c].Caption := 'X';
-    SeatPanels[r,c].Color := clGray;
+    Res := Reservations[I];
+    if IsSameShow(Res) then
+    begin
+      // ako uređujemo baš ovu rezervaciju, ostavi njeno sedište slobodno
+      if (EditingReservation <> nil) and (Res = EditingReservation) then
+        Continue;
+
+      if (Res.SeatRow in [0..7]) and (Res.SeatCol in [0..7]) then
+      begin
+        SeatPanels[Res.SeatRow, Res.SeatCol].Enabled := False;
+        SeatPanels[Res.SeatRow, Res.SeatCol].Caption := 'X';
+        SeatPanels[Res.SeatRow, Res.SeatCol].Color := clGray;
+      end;
+    end;
   end;
 
   CurrentSeatRow := -1;
@@ -254,22 +312,22 @@ end;
 
 procedure TFormMain.SeatClick(Sender: TObject);
 var
-  pnl: TPanel;
-  r, c: Integer;
+  Pnl: TPanel;
+  RowIdx, ColIdx: Integer;
 begin
-  pnl := Sender as TPanel;
-  if not pnl.Enabled then Exit;
+  Pnl := Sender as TPanel;
+  if not Pnl.Enabled then Exit;
 
   if (CurrentSeatRow >= 0) and (CurrentSeatCol >= 0) then
     if SeatPanels[CurrentSeatRow, CurrentSeatCol].Enabled then
       SeatPanels[CurrentSeatRow, CurrentSeatCol].Color := clBtnFace;
 
-  r := pnl.Tag div 100;
-  c := pnl.Tag mod 100;
-  CurrentSeatRow := r;
-  CurrentSeatCol := c;
+  RowIdx := Pnl.Tag div 100;
+  ColIdx := Pnl.Tag mod 100;
+  CurrentSeatRow := RowIdx;
+  CurrentSeatCol := ColIdx;
 
-  pnl.Color := clSkyBlue;
+  Pnl.Color := clSkyBlue;
 
   btnReserve.Enabled := True;
   RefreshSeatSelectionLabel;
@@ -293,7 +351,7 @@ end;
 
 procedure TFormMain.SaveCurrentAsReservation;
 var
-  R: TReservation;
+  Res: TReservation;
 begin
   if Assigned(EditingReservation) then
   begin
@@ -311,35 +369,36 @@ begin
   end
   else
   begin
-    R := TReservation.Create;
-    R.Id := FormatDateTime('yyyymmddhhnnsszzz', Now);
-    R.MovieTitle := CurrentMovie;
-    R.City := CurrentCity;
-    R.ShowDate := CurrentDate;
-    R.ShowTime := CurrentTime;
-    R.ProjectionType := CurrentType;
-    R.SeatRow := CurrentSeatRow;
-    R.SeatCol := CurrentSeatCol;
-    R.PriceRSD := CalcPrice(CurrentType, CurrentTime);
-    if cbGPay.Checked then R.PaymentMethod := 'Google Pay'
-    else if cbAPay.Checked then R.PaymentMethod := 'Apple Pay'
-    else R.PaymentMethod := 'Kartica';
-    Reservations.Add(R);
+    Res := TReservation.Create;
+    Res.Id := FormatDateTime('yyyymmddhhnnsszzz', Now);
+    Res.MovieTitle := CurrentMovie;
+    Res.City := CurrentCity;
+    Res.ShowDate := CurrentDate;
+    Res.ShowTime := CurrentTime;
+    Res.ProjectionType := CurrentType;
+    Res.SeatRow := CurrentSeatRow;
+    Res.SeatCol := CurrentSeatCol;
+    Res.PriceRSD := CalcPrice(CurrentType, CurrentTime);
+    if cbGPay.Checked then Res.PaymentMethod := 'Google Pay'
+    else if cbAPay.Checked then Res.PaymentMethod := 'Apple Pay'
+    else Res.PaymentMethod := 'Kartica';
+    Reservations.Add(Res);
   end;
 end;
 
 procedure TFormMain.RebuildReservationsList;
 var
-  i: Integer;
-  R: TReservation;
+  I: Integer;
+  Res: TReservation;
 begin
   lstReservations.Clear;
-  for i := 0 to Reservations.Count-1 do
+  for I := 0 to Reservations.Count-1 do
   begin
-    R := Reservations[i];
+    Res := Reservations[I];
     lstReservations.Items.AddObject(
       Format('%s | %s %s %s | %s | Sedиште %d-%d | %d RSD',
-        [R.MovieTitle, R.City, R.ShowDate, R.ShowTime, R.ProjectionType, R.SeatRow+1, R.SeatCol+1, R.PriceRSD]), R);
+        [Res.MovieTitle, Res.City, Res.ShowDate, Res.ShowTime, Res.ProjectionType,
+         Res.SeatRow+1, Res.SeatCol+1, Res.PriceRSD]), Res);
   end;
 end;
 
@@ -378,10 +437,10 @@ end;
 
 procedure TFormMain.OnMoviePick(Sender: TObject);
 var
-  b: TButton;
+  B: TButton;
 begin
-  b := Sender as TButton;
-  CurrentMovie := b.Caption;
+  B := Sender as TButton;
+  CurrentMovie := B.Caption;
   btnToOptionsFromMovie.Enabled := True;
   GoToTab(TabOptions);
 end;
@@ -407,14 +466,14 @@ begin
     Exit;
   end;
 
-  LoadRandomTakenSeats;
+  LoadTakenSeatsFromReservations;
   GoToTab(TabSeats);
 end;
 
 procedure TFormMain.OnReserveSeat(Sender: TObject);
 var
-  price: Integer;
-  summary: string;
+  Price: Integer;
+  Summary: string;
 begin
   if (CurrentSeatRow < 0) or (CurrentSeatCol < 0) then
   begin
@@ -422,27 +481,44 @@ begin
     Exit;
   end;
 
-  price := CalcPrice(CurrentType, CurrentTime);
+  // prevent double booking
+  if IsSeatAlreadyReserved(CurrentSeatRow, CurrentSeatCol, EditingReservation) then
+  begin
+    ShowMessage('Ово седиште је већ резервисано за исти филм/биоскоп/термин.');
+    Exit;
+  end;
 
-  summary := Format('Филм: %s'#13#10'Град/датум/време: %s, %s, %s'#13#10'Тип: %s'#13#10'Седиште: %d-%d'#13#10'Цена: %d RSD',
-    [CurrentMovie, CurrentCity, CurrentDate, CurrentTime, CurrentType, CurrentSeatRow+1, CurrentSeatCol+1, price]);
-  lblSummary.Caption := summary;
+  Price := CalcPrice(CurrentType, CurrentTime);
 
-  // Anti-overlap realignment
+  Summary := Format('Филм: %s'#13#10'Град/датум/време: %s, %s, %s'#13#10'Тип: %s'#13#10'Седиште: %d-%d'#13#10'Цена: %d RSD',
+    [CurrentMovie, CurrentCity, CurrentDate, CurrentTime, CurrentType, CurrentSeatRow+1, CurrentSeatCol+1, Price]);
+  lblSummary.Caption := Summary;
+
+  // anti-overlap – pomeri kontrole ispod teksta
   grpPayment.Top := lblSummary.Top + lblSummary.Height + 12;
   btnContinue.Top := grpPayment.Top + grpPayment.Height + 12;
 
-  cbGPay.Checked := False; cbAPay.Checked := False; cbCard.Checked := False;
+  // reset payment bez rekurzije
+  UpdatingPayment := True;
+  try
+    cbGPay.OnClick := nil; cbAPay.OnClick := nil; cbCard.OnClick := nil;
+    cbGPay.Checked := False; cbAPay.Checked := False; cbCard.Checked := False;
+  finally
+    cbGPay.OnClick := OnlyOnePaymentChecked;
+    cbAPay.OnClick := OnlyOnePaymentChecked;
+    cbCard.OnClick := OnlyOnePaymentChecked;
+    UpdatingPayment := False;
+  end;
 
   GoToTab(TabCheckout);
 end;
 
 procedure TFormMain.OnContinue(Sender: TObject);
 var
-  payChosen: Boolean;
+  PayChosen: Boolean;
 begin
-  payChosen := cbGPay.Checked or cbAPay.Checked or cbCard.Checked;
-  if not payChosen then
+  PayChosen := cbGPay.Checked or cbAPay.Checked or cbCard.Checked;
+  if not PayChosen then
   begin
     ShowMessage('Одаберите начин плаћања.');
     Exit;
@@ -455,28 +531,28 @@ end;
 
 procedure TFormMain.OnOpenReservation(Sender: TObject);
 var
-  idx: Integer;
-  R: TReservation;
+  Idx: Integer;
+  Res: TReservation;
 begin
-  idx := lstReservations.ItemIndex;
-  if idx < 0 then
+  Idx := lstReservations.ItemIndex;
+  if Idx < 0 then
   begin
     ShowMessage('Одаберите резервацију.');
     Exit;
   end;
 
-  R := TReservation(lstReservations.Items.Objects[idx]);
+  Res := TReservation(lstReservations.Items.Objects[Idx]);
 
   lblResDetail.Caption := Format(
     'Филм: %s'#13#10'Град/датум/време: %s, %s, %s'#13#10'Тип: %s'#13#10'Седиште: %d-%d'#13#10'Цена: %d RSD'#13#10'Плаћање: %s',
-    [R.MovieTitle, R.City, R.ShowDate, R.ShowTime, R.ProjectionType, R.SeatRow+1, R.SeatCol+1, R.PriceRSD, R.PaymentMethod]);
+    [Res.MovieTitle, Res.City, Res.ShowDate, Res.ShowTime, Res.ProjectionType, Res.SeatRow+1, Res.SeatCol+1, Res.PriceRSD, Res.PaymentMethod]);
 
-  // Align buttons under detail text
+  // poravnanje dugmadi ispod teksta
   btnChangeSeat.Top := lblResDetail.Top + lblResDetail.Height + 10;
   btnCancelRes.Top  := btnChangeSeat.Top;
   btnBackToMyRes.Top := btnChangeSeat.Top;
 
-  EditingReservation := R;
+  EditingReservation := Res;
 
   GoToTab(TabResDetail);
 end;
@@ -491,23 +567,23 @@ begin
   CurrentTime := EditingReservation.ShowTime;
   CurrentType := EditingReservation.ProjectionType;
 
-  LoadRandomTakenSeats;
+  LoadTakenSeatsFromReservations;
   GoToTab(TabSeats);
 end;
 
 procedure TFormMain.OnCancelRes(Sender: TObject);
 var
-  i: Integer;
-  R: TReservation;
+  I: Integer;
+  Res: TReservation;
 begin
   if not Assigned(EditingReservation) then Exit;
 
-  for i := Reservations.Count-1 downto 0 do
+  for I := Reservations.Count-1 downto 0 do
   begin
-    R := Reservations[i];
-    if R = EditingReservation then
+    Res := Reservations[I];
+    if Res = EditingReservation then
     begin
-      Reservations.Delete(i);
+      Reservations.Delete(I);
       Break;
     end;
   end;
